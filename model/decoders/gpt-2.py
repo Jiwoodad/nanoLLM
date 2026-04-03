@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,6 +50,7 @@ class GPT2(nn.Module):
         self.context_size = context_size
         self.vocab_size = vocab_size
         self.padding_idx = padding_idx
+        self.num_blocks = num_blocks
 
         self.token_emb = nn.Embedding(
             self.vocab_size, self.d_model, padding_idx=self.padding_idx
@@ -63,11 +65,32 @@ class GPT2(nn.Module):
 
         self.layernorm = nn.LayerNorm(self.d_model)
         self.out_proj = nn.Linear(self.d_model, self.vocab_size, bias=False)
+
+        # weight initialization
+        self.apply(self._init_weights)
+
+        # weight initialization for out projection of self attention
+        for name, param in self.named_parameters():
+            if name.endswith("W_o.weight") or name.endswith("linear_2.weight"):
+                nn.init.normal_(
+                    param,
+                    mean=0.0,
+                    std=0.02 / math.sqrt(2 * self.num_blocks),
+                )
+
         self.out_proj.weight = self.token_emb.weight
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, x):
         "input shape : (batch_size, context_size)"
-        assert self.context_size == x.shape[1]
+        assert x.shape[1] <= self.context_size
 
         out = self.token_emb(x)
         pos = torch.arange(x.shape[1], device=x.device)
